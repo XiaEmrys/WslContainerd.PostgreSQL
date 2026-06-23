@@ -10,8 +10,12 @@
     <Description>PostgreSQL service on Windows via WSL2 + containerd.</Description>
     <Version>0.1.0</Version>
     <WslContainerdNetMonorepoPath>$(MSBuildThisFileDirectory)..\..\WslContainerd.Net\</WslContainerdNetMonorepoPath>
+    <WslContainerdNetStandalonePath>$(MSBuildThisFileDirectory)..\WslContainerd.Net\</WslContainerdNetStandalonePath>
+    <WslContainerdNetPath />
+    <WslContainerdNetPath Condition="Exists('$(WslContainerdNetMonorepoPath)WslContainerd.Logging.Abstractions\WslContainerd.Logging.Abstractions.csproj')">$(WslContainerdNetMonorepoPath)</WslContainerdNetPath>
+    <WslContainerdNetPath Condition="'$(WslContainerdNetPath)' == '' and Exists('$(WslContainerdNetStandalonePath)WslContainerd.Logging.Abstractions\WslContainerd.Logging.Abstractions.csproj')">$(WslContainerdNetStandalonePath)</WslContainerdNetPath>
     <UseWslContainerdNetProjectRefs>false</UseWslContainerdNetProjectRefs>
-    <UseWslContainerdNetProjectRefs Condition="Exists('$(WslContainerdNetMonorepoPath)WslContainerd.Logging.Abstractions\WslContainerd.Logging.Abstractions.csproj')">true</UseWslContainerdNetProjectRefs>
+    <UseWslContainerdNetProjectRefs Condition="'$(WslContainerdNetPath)' != ''">true</UseWslContainerdNetProjectRefs>
   </PropertyGroup>
 
   <ItemGroup>
@@ -20,9 +24,9 @@
   </ItemGroup>
 
   <ItemGroup Condition="'$(UseWslContainerdNetProjectRefs)' == 'true'">
-    <ProjectReference Include="$(WslContainerdNetMonorepoPath)WslContainerd.Logging.Abstractions\WslContainerd.Logging.Abstractions.csproj" />
-    <ProjectReference Include="$(WslContainerdNetMonorepoPath)WslContainerd.Services.Abstractions\WslContainerd.Services.Abstractions.csproj" />
-    <ProjectReference Include="$(WslContainerdNetMonorepoPath)WslContainerd.Net.Abstractions\WslContainerd.Net.Abstractions.csproj" />
+    <ProjectReference Include="$(WslContainerdNetPath)WslContainerd.Logging.Abstractions\WslContainerd.Logging.Abstractions.csproj" />
+    <ProjectReference Include="$(WslContainerdNetPath)WslContainerd.Services.Abstractions\WslContainerd.Services.Abstractions.csproj" />
+    <ProjectReference Include="$(WslContainerdNetPath)WslContainerd.Net.Abstractions\WslContainerd.Net.Abstractions.csproj" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(UseWslContainerdNetProjectRefs)' != 'true'">
