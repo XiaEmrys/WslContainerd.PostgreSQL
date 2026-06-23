@@ -1,0 +1,14 @@
+<Project>
+  <PropertyGroup>
+    <Authors>XiaEmrys</Authors>
+    <Company>XiaEmrys</Company>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/XiaEmrys/WslContainerd.PostgreSQL.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageProjectUrl>https://github.com/XiaEmrys/WslContainerd.PostgreSQL</PackageProjectUrl>
+    <PackageTags>wsl;postgresql;containers</PackageTags>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+</Project>

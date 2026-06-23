@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>WslContainerd.PostgreSQL</RootNamespace>
+    <AssemblyName>WslContainerd.PostgreSQL</AssemblyName>
+    <PackageId>WslContainerd.PostgreSQL</PackageId>
+    <Description>PostgreSQL service on Windows via WSL2 + containerd.</Description>
+    <Version>0.1.0</Version>
+    <WslContainerdNetMonorepoPath>$(MSBuildThisFileDirectory)..\..\WslContainerd.Net\</WslContainerdNetMonorepoPath>
+    <UseWslContainerdNetProjectRefs>false</UseWslContainerdNetProjectRefs>
+    <UseWslContainerdNetProjectRefs Condition="Exists('$(WslContainerdNetMonorepoPath)WslContainerd.Logging.Abstractions\WslContainerd.Logging.Abstractions.csproj')">true</UseWslContainerdNetProjectRefs>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Npgsql" Version="9.0.1" />
+    <PackageReference Include="Dapper" Version="2.1.35" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(UseWslContainerdNetProjectRefs)' == 'true'">
+    <ProjectReference Include="$(WslContainerdNetMonorepoPath)WslContainerd.Logging.Abstractions\WslContainerd.Logging.Abstractions.csproj" />
+    <ProjectReference Include="$(WslContainerdNetMonorepoPath)WslContainerd.Services.Abstractions\WslContainerd.Services.Abstractions.csproj" />
+    <ProjectReference Include="$(WslContainerdNetMonorepoPath)WslContainerd.Net.Abstractions\WslContainerd.Net.Abstractions.csproj" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(UseWslContainerdNetProjectRefs)' != 'true'">
+    <PackageReference Include="WslContainerd.Logging.Abstractions" Version="0.1.0" />
+    <PackageReference Include="WslContainerd.Services.Abstractions" Version="0.1.0" />
+    <PackageReference Include="WslContainerd.Net.Abstractions" Version="0.1.0" />
+  </ItemGroup>
+
+</Project>
+

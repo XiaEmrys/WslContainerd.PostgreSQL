@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Restore
+        run: dotnet restore WslContainerd.PostgreSQL.sln
+
+      - name: Build
+        run: dotnet build WslContainerd.PostgreSQL.sln -c Release --no-restore
+
+      - name: Pack
+        run: dotnet pack WslContainerd.PostgreSQL.sln -c Release --no-build -o artifacts/nuget
+
+      - name: Upload packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: nuget-packages
+          path: artifacts/nuget/*.nupkg
