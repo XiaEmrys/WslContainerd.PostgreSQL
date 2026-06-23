@@ -12,6 +12,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Checkout WslContainerd.Net
+        uses: actions/checkout@v4
+        with:
+          repository: XiaEmrys/WslContainerd.Net
+          ref: master
+          path: WslContainerd.Net
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
