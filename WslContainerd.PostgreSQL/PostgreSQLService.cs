@@ -394,15 +394,7 @@ public class PostgreSQLService : IPostgreSQLContainerService
     {
         try
         {
-            // 从环境变量加载配置
-            var config = PostgreSQLConfiguration.FromEnvironment();
-            if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("POSTGRES_USER")))
-                config.User = _options.DefaultUser;
-            if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("POSTGRES_PASSWORD")))
-                config.Password = _options.DefaultPassword;
-            if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("POSTGRES_DB")))
-                config.Database = _options.DefaultDatabase;
-            
+            var config = GetEffectiveConfiguration();
             // 验证配置
             var validationErrors = config.Validate();
             if (validationErrors.Count > 0)
@@ -1061,14 +1053,28 @@ public class PostgreSQLService : IPostgreSQLContainerService
         }
     }
 
+    /// <summary>
+    /// 合并环境变量与 Evolux Options，保证连接串与容器启动凭据一致。
+    /// </summary>
+    private PostgreSQLConfiguration GetEffectiveConfiguration()
+    {
+        var config = PostgreSQLConfiguration.FromEnvironment();
+        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("POSTGRES_USER")))
+            config.User = _options.DefaultUser;
+        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("POSTGRES_PASSWORD")))
+            config.Password = _options.DefaultPassword;
+        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("POSTGRES_DB")))
+            config.Database = _options.DefaultDatabase;
+        return config;
+    }
+
     public string GetConnectionString(string database = "postgres")
     {
         // 解析主机地址：优先环境变量，其次默认值
         var host = ResolvePostgresHost();
 
-        // 从配置类获取连接参数
-        var config = PostgreSQLConfiguration.FromEnvironment();
-        
+        // 从配置类获取连接参数（与容器启动时使用的凭据一致）
+        var config = GetEffectiveConfiguration();
         // 使用 NpgsqlConnectionStringBuilder 来构建连接字符串，避免参数重复问题
         var builder = new NpgsqlConnectionStringBuilder
         {
@@ -1090,7 +1096,7 @@ public class PostgreSQLService : IPostgreSQLContainerService
         
         if (database == "postgres" || database == _options.DefaultDatabase || database == _options.ApplicationDatabase)
         {
-            builder.Database = config.Database;
+            builder.Database = _options.ApplicationDatabase;
         }
         else
         {
