@@ -125,9 +125,11 @@ public class PostgreSQLService : IPostgreSQLContainerService
     {
         try
         {
-            // 直接使用 netstat 检查端口占用情况
-            var result = await _containerRuntime.ExecuteWSLCommandAsync($"netstat -tlnp | grep ':{port}'");
-            return !string.IsNullOrEmpty(result);
+            // 注意：ExecuteWSLCommandAsync 在命令非 0 退出时返回 "Error: ..."。
+            // grep 无匹配时 exit=1，绝不能用“非空即占用”。改用显式 OCCUPIED/FREE 标记。
+            var result = await _containerRuntime.ExecuteWSLCommandAsync(
+                $"netstat -tln 2>/dev/null | grep -E ':{port}[[:space:]]' >/dev/null && echo OCCUPIED || echo FREE");
+            return result.Contains("OCCUPIED", StringComparison.Ordinal);
         }
         catch
         {
@@ -253,26 +255,7 @@ public class PostgreSQLService : IPostgreSQLContainerService
             if (!success)
             {
                 logCallback?.Invoke("PostgreSQL 容器创建失败");
-                
-                // 创建启动失败标记文件，用于下次启动时触发回退机制
-                try
-                {
-                    var persistentPath = await SelectOptimalPersistentPathAsync(logCallback);
-                    if (!string.IsNullOrEmpty(persistentPath) && persistentPath.StartsWith("/mnt/"))
-                    {
-                        var windowsPath = ConvertWslPathToWindows(persistentPath);
-                        if (!string.IsNullOrEmpty(windowsPath))
-                        {
-                            var failureMarkerFile = Path.Combine(windowsPath, ".postgresql_startup_failed");
-                            File.WriteAllText(failureMarkerFile, DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss UTC"));
-                            logCallback?.Invoke($"📝 已创建启动失败标记文件: {failureMarkerFile}");
-                        }
-                    }
-                }
-                catch (Exception markerEx)
-                {
-                    logCallback?.Invoke($"⚠️ 创建失败标记文件时出错: {markerEx.Message}");
-                }
+                await WriteStartupFailureMarkerAsync(logCallback);
                 
                 // 尝试获取容器日志以诊断问题（仅当容器存在时）
                 try
@@ -309,26 +292,7 @@ public class PostgreSQLService : IPostgreSQLContainerService
             if (!immediateCheck)
             {
                 logCallback?.Invoke("❌ 容器启动后立即退出，尝试获取日志...");
-                
-                // 创建启动失败标记文件，用于下次启动时触发回退机制
-                try
-                {
-                    var persistentPath = await SelectOptimalPersistentPathAsync(logCallback);
-                    if (!string.IsNullOrEmpty(persistentPath) && persistentPath.StartsWith("/mnt/"))
-                    {
-                        var windowsPath = ConvertWslPathToWindows(persistentPath);
-                        if (!string.IsNullOrEmpty(windowsPath))
-                        {
-                            var failureMarkerFile = Path.Combine(windowsPath, ".postgresql_startup_failed");
-                            File.WriteAllText(failureMarkerFile, DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss UTC"));
-                            logCallback?.Invoke($"📝 已创建启动失败标记文件: {failureMarkerFile}");
-                        }
-                    }
-                }
-                catch (Exception markerEx)
-                {
-                    logCallback?.Invoke($"⚠️ 创建失败标记文件时出错: {markerEx.Message}");
-                }
+                await WriteStartupFailureMarkerAsync(logCallback);
                 
                 // 获取容器日志
                 try
@@ -369,8 +333,8 @@ public class PostgreSQLService : IPostgreSQLContainerService
                 }
                 logCallback?.Invoke("✅ PostgreSQL 服务启动成功");
                 logCallback?.Invoke($"🔗 PostgreSQL 访问地址: 127.0.0.1:{hostPort}");
-                
-                
+
+                await ClearStartupFailureMarkerAsync(persistentPath: null, logCallback);
                 return true;
             }
             else
@@ -829,58 +793,128 @@ public class PostgreSQLService : IPostgreSQLContainerService
     }
 
     /// <summary>
-    /// 检查是否应该回退到WSL本地存储
+    /// 检查是否应该回退到WSL本地存储。
+    /// PostgreSQL 数据目录要求 POSIX 权限（chmod 700 / chown postgres）；Windows drvfs 不支持，initdb 会失败。
     /// </summary>
     private async Task<bool> ShouldFallbackToWslLocal(string persistentPath, Action<string>? logCallback)
     {
         try
         {
+            var windowsPath = ConvertWslPathToWindows(persistentPath);
+
+            // drvfs (/mnt/...) 永远不可用于 PostgreSQL 数据目录：会出现
+            // "could not change permissions of directory: Operation not permitted"
+            if (persistentPath.StartsWith("/mnt/", StringComparison.OrdinalIgnoreCase))
+            {
+                logCallback?.Invoke("⚠️ Windows/drvfs 数据目录不支持 PostgreSQL 权限语义（initdb 会失败），回退到 WSL 本地 ext4 存储");
+                TryDeleteStartupFailureMarker(windowsPath, logCallback);
+                return true;
+            }
+
             // 检查是否存在失败的PostgreSQL容器记录
             var failedContainers = await _containerRuntime.ListContainersAsync();
-            var hasFailedPostgres = failedContainers.Any(c => c.Name.Contains("evolux-postgresql") && c.Status.Contains("Exited"));
+            var hasFailedPostgres = failedContainers.Any(c =>
+                c.Name.Contains("evolux-postgresql", StringComparison.OrdinalIgnoreCase) &&
+                c.Status.Contains("Exited", StringComparison.OrdinalIgnoreCase));
             
             if (hasFailedPostgres)
             {
                 logCallback?.Invoke("⚠️ 检测到PostgreSQL容器启动失败，启用回退机制");
                 return true;
             }
-            
-            // 检查是否存在PostgreSQL启动失败标记文件
-            var windowsPath = ConvertWslPathToWindows(persistentPath);
-            if (!string.IsNullOrEmpty(windowsPath))
-            {
-                var failureMarkerFile = Path.Combine(windowsPath, ".postgresql_startup_failed");
-                if (File.Exists(failureMarkerFile))
-                {
-                    logCallback?.Invoke("⚠️ 检测到PostgreSQL启动失败标记，启用回退机制");
-                    return true;
-                }
-            }
-            
-            // 检查Windows目录是否可写
-            if (!string.IsNullOrEmpty(windowsPath))
-            {
-                try
-                {
-                    var testFile = Path.Combine(windowsPath, "test_write.tmp");
-                    File.WriteAllText(testFile, "test");
-                    File.Delete(testFile);
-                    logCallback?.Invoke("✅ Windows目录可写，继续使用Windows直接访问");
-                    return false;
-                }
-                catch (Exception ex)
-                {
-                    logCallback?.Invoke($"⚠️ Windows目录不可写: {ex.Message}，启用回退机制");
-                    return true;
-                }
-            }
-            
+
             return false;
         }
         catch (Exception ex)
         {
             logCallback?.Invoke($"⚠️ 回退检查失败: {ex.Message}，启用回退机制");
             return true;
+        }
+    }
+
+    private async Task ClearStartupFailureMarkerAsync(string? persistentPath, Action<string>? logCallback)
+    {
+        try
+        {
+            // 失败标记写在候选 Windows 数据目录上；成功启动（含回退到 WSL 本地）后都应清理
+            var windowsCandidates = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            void AddWindowsPath(string? path)
+            {
+                if (string.IsNullOrWhiteSpace(path))
+                {
+                    return;
+                }
+
+                if (path.StartsWith("/mnt/", StringComparison.OrdinalIgnoreCase))
+                {
+                    var converted = ConvertWslPathToWindows(path);
+                    if (!string.IsNullOrEmpty(converted))
+                    {
+                        windowsCandidates.Add(converted);
+                    }
+                }
+                else if (path.Length >= 2 && path[1] == ':')
+                {
+                    windowsCandidates.Add(path);
+                }
+            }
+
+            AddWindowsPath(persistentPath);
+            AddWindowsPath(GetProgramRootDataPath());
+            AddWindowsPath(await SelectOptimalPersistentPathAsync(null));
+
+            foreach (var windowsPath in windowsCandidates)
+            {
+                TryDeleteStartupFailureMarker(windowsPath, logCallback);
+            }
+        }
+        catch (Exception ex)
+        {
+            logCallback?.Invoke($"⚠️ 清除启动失败标记时出错: {ex.Message}");
+        }
+    }
+
+    private static void TryDeleteStartupFailureMarker(string? windowsPath, Action<string>? logCallback)
+    {
+        if (string.IsNullOrEmpty(windowsPath))
+        {
+            return;
+        }
+
+        var failureMarkerFile = Path.Combine(windowsPath, ".postgresql_startup_failed");
+        if (!File.Exists(failureMarkerFile))
+        {
+            return;
+        }
+
+        File.Delete(failureMarkerFile);
+        logCallback?.Invoke($"🧹 已清除 PostgreSQL 启动失败标记: {failureMarkerFile}");
+    }
+
+    private async Task WriteStartupFailureMarkerAsync(Action<string>? logCallback)
+    {
+        try
+        {
+            var persistentPath = await SelectOptimalPersistentPathAsync(logCallback);
+            if (string.IsNullOrEmpty(persistentPath) || !persistentPath.StartsWith("/mnt/"))
+            {
+                return;
+            }
+
+            var windowsPath = ConvertWslPathToWindows(persistentPath);
+            if (string.IsNullOrEmpty(windowsPath))
+            {
+                return;
+            }
+
+            var failureMarkerFile = Path.Combine(windowsPath, ".postgresql_startup_failed");
+            File.WriteAllText(failureMarkerFile, DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss UTC"));
+            logCallback?.Invoke($"📝 已创建启动失败标记文件: {failureMarkerFile}");
+        }
+        catch (Exception markerEx)
+        {
+            logCallback?.Invoke($"⚠️ 创建失败标记文件时出错: {markerEx.Message}");
         }
     }
 
