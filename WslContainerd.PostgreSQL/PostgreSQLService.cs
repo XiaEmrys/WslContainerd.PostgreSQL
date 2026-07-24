@@ -24,6 +24,12 @@ public class PostgreSQLService : IPostgreSQLContainerService
     private string? _containerIp;
     private int _mappedHostPort;
 
+    static PostgreSQLService()
+    {
+        // Map snake_case columns (created_at, turn_id, ...) to PascalCase properties.
+        DefaultTypeMap.MatchNamesWithUnderscores = true;
+    }
+
     public string ServiceName => "postgresql";
     public string DisplayName => "PostgreSQL";
 
